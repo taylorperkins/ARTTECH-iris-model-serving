@@ -1,0 +1,45 @@
+#!/bin/bash
+
+usage() { echo "Usage: $0 -i <image> -r <repository> [-p <aws profile>] [-t <tags>]" 1>&2; exit 1; }
+
+tags=("latest")
+region=${AWS_REGION:-us-east-1}
+p=default
+while getopts ":i:r:p:t:" o; do
+    case "${o}" in
+    	i) i=${OPTARG} ;;
+      r) r=${OPTARG} ;;
+      p) p=${OPTARG} ;;
+      t) tags+=("${OPTARG}") ;;
+      *) usage ;;
+    esac
+done
+shift $((OPTIND-1))
+
+# Make sure image/repository get populated
+if [ -z "${i}" ] || [ -z "${r}" ]; then
+    usage
+fi
+
+echo "Getting caller identity from AWS profile: ${p}"
+account_id=$(aws sts get-caller-identity --profile "${p}" | jq -r '.Account')
+
+echo "Logging into ECR with ${p} account: ${account_id}"
+aws ecr get-login-password --region "${region}" --profile "${p}" \
+    | docker login --username AWS --password-stdin "${account_id}".dkr.ecr."${region}".amazonaws.com
+
+# repository check
+if [[ ! $(aws ecr describe-repositories --repository-names "${r}" --profile "${p}") ]]; then
+	read -p "${r} repository not found.. Should I create it?" answer
+	[[ ${answer} != 'y' ]] && echo "Aborting." 1>&2; exit 1;
+
+	echo "Creating repository ${r}"
+	aws ecr create-repository --repository-name "${r}" --profile "${p}"
+fi
+
+# tag and push
+for t in "${tags[@]}"; do
+	echo "Tagging image with ${t} and pushing."
+	docker tag "${i}" "${account_id}".dkr.ecr."${region}".amazonaws.com/"${r}":"${t}"
+	docker push "${account_id}".dkr.ecr."${region}".amazonaws.com/"${r}":"${t}"
+done

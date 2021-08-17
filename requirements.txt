@@ -1,0 +1,5 @@
+git+git://github.com/taylorperkins/ARTTECH-iris-model-training@main
+awslambdaric
+numpy
+pandas
+pydantic

@@ -1,0 +1,43 @@
+#!/bin/bash
+
+usage() { echo "Usage: $0 -r <repository> [-p <aws profile>] [-t <tag>]" 1>&2; exit 1; }
+
+function_name="ARTTECH-Iris"
+tag=latest
+region=${AWS_REGION:-us-east-1}
+p=default
+while getopts ":r:p:t:" o; do
+    case "${o}" in
+      r) r=${OPTARG} ;;
+      p) p=${OPTARG} ;;
+      t) tag=${OPTARG} ;;
+      *) usage ;;
+    esac
+done
+shift $((OPTIND-1))
+
+# Make sure image/repository get populated
+if [ -z "${r}" ]; then
+    usage
+fi
+
+echo "Getting caller identity from AWS profile: ${p}"
+account_id=$(aws sts get-caller-identity --profile "${p}" | jq -r '.Account')
+
+echo "Updating function"
+aws lambda update-function-code \
+  --function-name "${function_name}" \
+  --profile "${p}" \
+  --image-uri "${account_id}".dkr.ecr."${region}".amazonaws.com/"${r}":"${tag}" \
+  > /dev/null 2>&1;
+
+
+fn_status() { aws lambda get-function --function-name "${function_name}" --profile "${p}" | jq -r '.Configuration.State'; }
+
+while [ "$(fn_status)" != "Active" ]
+do
+  echo "Lambda state updating.."
+  sleep 5
+done
+
+echo "Done"
